@@ -19,10 +19,22 @@
 package org.apache.flink.connector.elasticsearch.table;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.api.common.serialization.DeserializationSchema;
+import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.connector.elasticsearch.Elasticsearch7ApiCallBridge;
 import org.apache.flink.connector.elasticsearch.ElasticsearchApiCallBridge;
 import org.apache.flink.connector.elasticsearch.sink.Elasticsearch7SinkBuilder;
+import org.apache.flink.table.connector.format.DecodingFormat;
+import org.apache.flink.table.connector.source.DynamicTableSource;
+import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.factories.DeserializationFormatFactory;
 import org.apache.flink.table.factories.DynamicTableSinkFactory;
+import org.apache.flink.table.factories.FactoryUtil;
+
+import org.elasticsearch.client.RestHighLevelClient;
+
+import static org.apache.flink.table.connector.source.lookup.LookupOptions.MAX_RETRIES;
+import static org.elasticsearch.common.Strings.capitalize;
 
 /** A {@link DynamicTableSinkFactory} for discovering {@link ElasticsearchDynamicSink}. */
 @Internal
@@ -34,7 +46,38 @@ public class Elasticsearch7DynamicTableFactory extends ElasticsearchDynamicTable
     }
 
     @Override
-    ElasticsearchApiCallBridge<?> getElasticsearchApiCallBridge() {
+    ElasticsearchConfiguration getConfiguration(FactoryUtil.TableFactoryHelper helper) {
+        return new Elasticsearch7Configuration(helper.getOptions());
+    }
+
+    @Override
+    public DynamicTableSource createDynamicTableSource(Context context) {
+        final FactoryUtil.TableFactoryHelper helper =
+                FactoryUtil.createTableFactoryHelper(this, context);
+        final ReadableConfig options = helper.getOptions();
+        final DecodingFormat<DeserializationSchema<RowData>> format =
+                helper.discoverDecodingFormat(
+                        DeserializationFormatFactory.class,
+                        org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions
+                                .FORMAT_OPTION);
+
+        ElasticsearchConfiguration config = getConfiguration(helper);
+        helper.validate();
+        validateConfiguration(config);
+
+        return new Elasticsearch7DynamicSource(
+                format,
+                config,
+                context.getPhysicalRowDataType(),
+                options.get(MAX_RETRIES),
+                capitalize(FACTORY_IDENTIFIER),
+                getElasticsearchApiCallBridge(),
+                getLookupCache(options),
+                getDocumentType(config));
+    }
+
+    @Override
+    ElasticsearchApiCallBridge<RestHighLevelClient> getElasticsearchApiCallBridge() {
         return new Elasticsearch7ApiCallBridge();
     }
 }
