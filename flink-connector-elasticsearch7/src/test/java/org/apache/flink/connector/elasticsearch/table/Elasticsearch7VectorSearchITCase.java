@@ -20,6 +20,8 @@ import org.elasticsearch.common.xcontent.XContentFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
@@ -149,9 +151,10 @@ public class Elasticsearch7VectorSearchITCase {
                                 "+I[1, [11.11, 1.0], 1, ABCDE, true, 127, 257, 65535, 2003-10-20, 2012-12-12T12:12:12, 11.11, 12.22, [11.11, 11.12], [12.22, 12.22], [-2147483648, 2147483647], [-9223372036854775808, 9223372036854775807], 1.767361044883728]"));
     }
 
-    @Test
-    void testSearchUsingFloatArray() throws Exception {
-        String index = "table_with_multiple_data_with";
+    @ParameterizedTest
+    @ValueSource(strings = {"cosineSimilarity", "l1norm", "l2norm", "hamming", "dotProduct"})
+    void testSearchUsingFloatArray(String metric) throws Exception {
+        String index = "table_with_multiple_data_with_" + metric.toLowerCase();
         createSimpleIndex(index);
         tEnv.executeSql(
                 "CREATE TABLE es_table("

@@ -48,19 +48,21 @@ public class ElasticsearchRowDataVectorSearchFunction extends VectorSearchFuncti
 
     private final String[] producedNames;
     private final int maxRetryTimes;
+    private final SearchMetric searchMetric;
     private SearchRequest searchRequest;
     private SearchSourceBuilder searchSourceBuilder;
 
     private final ElasticsearchApiCallBridge<RestHighLevelClient> callBridge;
     private final NetworkClientConfig networkClientConfig;
     private final List<HttpHost> hosts;
-    private final String cosineSimilarity;
+    private final String scriptScore;
 
     private transient RestHighLevelClient client;
 
     public ElasticsearchRowDataVectorSearchFunction(
             DeserializationSchema<RowData> deserializationSchema,
             int maxRetryTimes,
+            SearchMetric searchMetric,
             String index,
             String searchColumn,
             String[] producedNames,
@@ -77,15 +79,17 @@ public class ElasticsearchRowDataVectorSearchFunction extends VectorSearchFuncti
 
         this.deserializationSchema = deserializationSchema;
         this.maxRetryTimes = maxRetryTimes;
+        this.searchMetric = searchMetric;
         this.index = index;
         this.producedNames = producedNames;
 
         this.networkClientConfig = networkClientConfig;
         this.hosts = hosts;
         this.callBridge = callBridge;
-        this.cosineSimilarity =
+        this.scriptScore =
                 String.format(
-                        "cosineSimilarity(params.%s, '%s') + 1.0", QUERY_VECTOR, searchColumn);
+                        "%s(params.%s, '%s') + 1.0",
+                        searchMetric.toString(), QUERY_VECTOR, searchColumn);
     }
 
     @Override
@@ -106,7 +110,7 @@ public class ElasticsearchRowDataVectorSearchFunction extends VectorSearchFuncti
         Map<String, Object> params =
                 Collections.singletonMap(QUERY_VECTOR, features.getArray(0).toFloatArray());
 
-        Script script = new Script(ScriptType.INLINE, "painless", cosineSimilarity, params);
+        Script script = new Script(ScriptType.INLINE, "painless", scriptScore, params);
 
         ScriptScoreQueryBuilder scriptScoreQuery =
                 new ScriptScoreQueryBuilder(new MatchAllQueryBuilder(), script);

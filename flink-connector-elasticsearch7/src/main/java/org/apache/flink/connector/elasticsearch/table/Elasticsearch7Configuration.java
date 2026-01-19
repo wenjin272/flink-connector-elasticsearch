@@ -1,8 +1,10 @@
 package org.apache.flink.connector.elasticsearch.table;
 
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.connector.elasticsearch.table.search.SearchMetric;
 
-import static org.apache.flink.connector.elasticsearch.table.Elasticsearch7ConnectorOptions.VECTOR_SEARCH_MAX_RETRIES;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch7ConnectorOptions.MAX_RETRIES;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch7ConnectorOptions.VECTOR_SEARCH_METRIC;
 
 /** Elasticsearch 7 specific configuration. */
 public class Elasticsearch7Configuration extends ElasticsearchConfiguration {
@@ -10,7 +12,11 @@ public class Elasticsearch7Configuration extends ElasticsearchConfiguration {
         super(config);
     }
 
-    public int getVectorSearchMaxRetries() {
-        return config.get(VECTOR_SEARCH_MAX_RETRIES);
+    public int getMaxRetries() {
+        return config.get(MAX_RETRIES);
+    }
+
+    public SearchMetric getVectorSearchMetric() {
+        return config.get(VECTOR_SEARCH_METRIC);
     }
 }

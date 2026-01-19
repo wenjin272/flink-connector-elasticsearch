@@ -33,7 +33,6 @@ import org.apache.flink.table.factories.FactoryUtil;
 
 import org.elasticsearch.client.RestHighLevelClient;
 
-import static org.apache.flink.table.connector.source.lookup.LookupOptions.MAX_RETRIES;
 import static org.elasticsearch.common.Strings.capitalize;
 
 /** A {@link DynamicTableSinkFactory} for discovering {@link ElasticsearchDynamicSink}. */
@@ -61,7 +60,7 @@ public class Elasticsearch7DynamicTableFactory extends ElasticsearchDynamicTable
                         org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions
                                 .FORMAT_OPTION);
 
-        ElasticsearchConfiguration config = getConfiguration(helper);
+        Elasticsearch7Configuration config = (Elasticsearch7Configuration) getConfiguration(helper);
         helper.validate();
         validateConfiguration(config);
 
@@ -69,7 +68,7 @@ public class Elasticsearch7DynamicTableFactory extends ElasticsearchDynamicTable
                 format,
                 config,
                 context.getPhysicalRowDataType(),
-                options.get(MAX_RETRIES),
+                config.getMaxRetries(),
                 capitalize(FACTORY_IDENTIFIER),
                 getElasticsearchApiCallBridge(),
                 getLookupCache(options),

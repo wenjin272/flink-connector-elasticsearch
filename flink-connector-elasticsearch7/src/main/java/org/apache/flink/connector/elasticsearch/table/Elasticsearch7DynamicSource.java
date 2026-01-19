@@ -31,7 +31,7 @@ public class Elasticsearch7DynamicSource extends ElasticsearchDynamicSource
             DecodingFormat<DeserializationSchema<RowData>> format,
             ElasticsearchConfiguration config,
             DataType physicalRowDataType,
-            int lookupMaxRetryTimes,
+            int maxRetryTimes,
             String summaryString,
             ElasticsearchApiCallBridge<RestHighLevelClient> apiCallBridge,
             @Nullable LookupCache lookupCache,
@@ -40,13 +40,14 @@ public class Elasticsearch7DynamicSource extends ElasticsearchDynamicSource
                 format,
                 config,
                 physicalRowDataType,
-                lookupMaxRetryTimes,
+                maxRetryTimes,
                 summaryString,
                 apiCallBridge,
                 lookupCache,
                 docType);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public VectorSearchRuntimeProvider getSearchRuntimeProvider(
             VectorSearchContext vectorSearchContext) {
@@ -56,7 +57,8 @@ public class Elasticsearch7DynamicSource extends ElasticsearchDynamicSource
         ElasticsearchRowDataVectorSearchFunction vectorSearchFunction =
                 new ElasticsearchRowDataVectorSearchFunction(
                         this.format.createRuntimeDecoder(vectorSearchContext, physicalRowDataType),
-                        ((Elasticsearch7Configuration) config).getVectorSearchMaxRetries(),
+                        this.maxRetryTimes,
+                        ((Elasticsearch7Configuration) config).getVectorSearchMetric(),
                         config.getIndex(),
                         getSearchColumn(vectorSearchContext),
                         DataType.getFieldNames(physicalRowDataType).toArray(new String[0]),
