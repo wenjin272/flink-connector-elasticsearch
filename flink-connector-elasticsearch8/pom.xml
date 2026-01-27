@@ -75,6 +75,19 @@ under the License.
 			<version>${jackson.version}</version>
 		</dependency>
 
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-connector-elasticsearch-base</artifactId>
+			<version>${project.version}</version>
+			<exclusions>
+				<!-- Exclude the base module elasticsearch -->
+				<exclusion>
+					<groupId>org.elasticsearch</groupId>
+					<artifactId>elasticsearch</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
 		<!-- Dependency for Elasticsearch 8.x Java Client -->
 		<dependency>
 			<groupId>co.elastic.clients</groupId>
