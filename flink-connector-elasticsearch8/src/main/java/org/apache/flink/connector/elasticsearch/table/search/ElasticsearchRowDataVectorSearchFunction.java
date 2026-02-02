@@ -1,9 +1,10 @@
 package org.apache.flink.connector.elasticsearch.table.search;
 
+import co.elastic.clients.json.JsonData;
+
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.connector.elasticsearch.ElasticsearchApiCallBridge;
-import org.apache.flink.connector.elasticsearch.NetworkClientConfig;
+import org.apache.flink.connector.elasticsearch.sink.NetworkConfig;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.utils.JoinedRowData;
@@ -11,27 +12,19 @@ import org.apache.flink.table.functions.FunctionContext;
 import org.apache.flink.table.functions.VectorSearchFunction;
 import org.apache.flink.util.FlinkRuntimeException;
 
-import org.apache.http.HttpHost;
-import org.elasticsearch.action.search.SearchRequest;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.client.RequestOptions;
-import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.index.query.MatchAllQueryBuilder;
-import org.elasticsearch.index.query.functionscore.ScriptScoreQueryBuilder;
-import org.elasticsearch.script.Script;
-import org.elasticsearch.script.ScriptType;
-import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.builder.SearchSourceBuilder;
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Stream;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -40,7 +33,6 @@ public class ElasticsearchRowDataVectorSearchFunction extends VectorSearchFuncti
     private static final Logger LOG =
             LoggerFactory.getLogger(ElasticsearchRowDataVectorSearchFunction.class);
     private static final long serialVersionUID = 1L;
-    private static final String QUERY_VECTOR = "query_vector";
 
     private final DeserializationSchema<RowData> deserializationSchema;
 
@@ -48,87 +40,67 @@ public class ElasticsearchRowDataVectorSearchFunction extends VectorSearchFuncti
 
     private final String[] producedNames;
     private final int maxRetryTimes;
-    private final SearchMetric searchMetric;
-    private SearchRequest searchRequest;
-    private SearchSourceBuilder searchSourceBuilder;
+    private final int numCandidates;
+    private final String searchColumn;
 
-    private final ElasticsearchApiCallBridge<RestHighLevelClient> callBridge;
-    private final NetworkClientConfig networkClientConfig;
-    private final List<HttpHost> hosts;
-    private final String scriptScore;
+    private final NetworkConfig networkConfig;
 
-    private transient RestHighLevelClient client;
+    private transient ElasticsearchClient client;
 
     public ElasticsearchRowDataVectorSearchFunction(
             DeserializationSchema<RowData> deserializationSchema,
             int maxRetryTimes,
-            SearchMetric searchMetric,
+            int numCandidates,
             String index,
             String searchColumn,
             String[] producedNames,
-            List<HttpHost> hosts,
-            NetworkClientConfig networkClientConfig) {
+            NetworkConfig networkConfig) {
 
         checkNotNull(deserializationSchema, "No DeserializationSchema supplied.");
         checkNotNull(maxRetryTimes, "No maxRetryTimes supplied.");
         checkNotNull(producedNames, "No fieldNames supplied.");
-        checkNotNull(hosts, "No hosts supplied.");
-        checkNotNull(networkClientConfig, "No networkClientConfig supplied.");
-        checkNotNull(callBridge, "No ElasticsearchApiCallBridge supplied.");
+        checkNotNull(networkConfig, "No networkConfig supplied.");
 
         this.deserializationSchema = deserializationSchema;
         this.maxRetryTimes = maxRetryTimes;
-        this.searchMetric = searchMetric;
+        this.numCandidates = numCandidates;
         this.index = index;
+        this.searchColumn = searchColumn;
         this.producedNames = producedNames;
-
-        this.networkClientConfig = networkClientConfig;
-        this.hosts = hosts;
-        this.callBridge = callBridge;
-        this.scriptScore =
-                String.format(
-                        "%s(params.%s, '%s') + 1.0",
-                        searchMetric.toString(), QUERY_VECTOR, searchColumn);
+        this.networkConfig = networkConfig;
     }
 
     @Override
     public void open(FunctionContext context) throws Exception {
-        this.client = callBridge.createClient(networkClientConfig, hosts);
+        this.client = networkConfig.createEsSyncClient();
 
-        // Set searchRequest in open method in case of amount of calling in eval method when every
-        // record comes.
-        this.searchRequest = new SearchRequest(index);
-        searchSourceBuilder = new SearchSourceBuilder();
-        searchSourceBuilder.fetchSource(producedNames, null);
         deserializationSchema.open(null);
     }
 
     @Override
     public Collection<RowData> vectorSearch(int topK, RowData features) throws IOException {
-        // Elasticsearch 7.x doesn't support ANN, we use script score to achieve exact matching.
-        Map<String, Object> params =
-                Collections.singletonMap(QUERY_VECTOR, features.getArray(0).toFloatArray());
-
-        Script script = new Script(ScriptType.INLINE, "painless", scriptScore, params);
-
-        ScriptScoreQueryBuilder scriptScoreQuery =
-                new ScriptScoreQueryBuilder(new MatchAllQueryBuilder(), script);
-
-        searchSourceBuilder.query(scriptScoreQuery).size(topK);
-
-        searchRequest.source(searchSourceBuilder);
+        List<Float> queryVector = new ArrayList<>();
+        for (float feature : features.getArray(0).toFloatArray()) {
+            queryVector.add(feature);
+        }
+        SearchRequest.Builder builder =
+                new SearchRequest.Builder()
+                        .index(index)
+                        .knn(kb -> kb.field(searchColumn).numCandidates(numCandidates).queryVector(queryVector).k(topK))
+                        .source(src -> src.filter(f -> f.includes(Arrays.asList(producedNames))));
+        SearchRequest request = builder.build();
 
         for (int retry = 0; retry <= maxRetryTimes; retry++) {
             try {
                 ArrayList<RowData> rows = new ArrayList<>();
-                Tuple2<String, SearchResult[]> searchResponse = search(client, searchRequest);
+                Tuple2<String, SearchResult[]> searchResponse = search(client, request);
 
                 if (searchResponse.f1.length > 0) {
                     for (SearchResult result : searchResponse.f1) {
                         String source = result.source;
                         RowData row = parseSearchResult(source);
                         GenericRowData scoreData = new GenericRowData(1);
-                        scoreData.setField(0, Double.valueOf(result.score));
+                        scoreData.setField(0, result.score);
                         if (row != null) {
                             rows.add(new JoinedRowData(row, scoreData));
                         }
@@ -165,22 +137,28 @@ public class ElasticsearchRowDataVectorSearchFunction extends VectorSearchFuncti
     }
 
     private Tuple2<String, SearchResult[]> search(
-            RestHighLevelClient client, SearchRequest searchRequest) throws IOException {
-        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
-        SearchHit[] searchHits = searchResponse.getHits().getHits();
+            ElasticsearchClient client, SearchRequest searchRequest) throws IOException {
+        SearchResponse<JsonData> searchResponse = client.search(searchRequest, JsonData.class);
+        List<Hit<JsonData>> searchHits = searchResponse.hits().hits();
 
         return new Tuple2<>(
-                searchResponse.getScrollId(),
-                Stream.of(searchHits)
-                        .map(hit -> new SearchResult(hit.getSourceAsString(), hit.getScore()))
+                searchResponse.scrollId(),
+                searchHits.stream()
+                        .map(hit -> {
+                            if (hit.source() != null) {
+                                return new SearchResult(hit.source().toJson().toString(), hit.score());
+                            } else {
+                                return new SearchResult(null, hit.score());
+                            }
+                        })
                         .toArray(SearchResult[]::new));
     }
 
     private static class SearchResult {
         private final String source;
-        private final Float score;
+        private final Double score;
 
-        public SearchResult(String source, Float score) {
+        public SearchResult(String source, Double score) {
             this.source = source;
             this.score = score;
         }

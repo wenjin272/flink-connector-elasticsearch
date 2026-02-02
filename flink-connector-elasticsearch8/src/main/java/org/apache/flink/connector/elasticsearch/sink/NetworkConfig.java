@@ -24,6 +24,7 @@ package org.apache.flink.connector.elasticsearch.sink;
 import org.apache.flink.util.function.SerializableSupplier;
 
 import co.elastic.clients.elasticsearch.ElasticsearchAsyncClient;
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import org.apache.http.Header;
@@ -76,6 +77,11 @@ public class NetworkConfig implements Serializable {
 
     public ElasticsearchAsyncClient createEsClient() {
         return new ElasticsearchAsyncClient(
+                new RestClientTransport(this.getRestClient(), new JacksonJsonpMapper()));
+    }
+
+    public ElasticsearchClient createEsSyncClient() {
+        return new ElasticsearchClient(
                 new RestClientTransport(this.getRestClient(), new JacksonJsonpMapper()));
     }
 

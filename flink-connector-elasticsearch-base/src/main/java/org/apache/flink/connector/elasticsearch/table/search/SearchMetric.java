@@ -1,5 +1,6 @@
 package org.apache.flink.connector.elasticsearch.table.search;
 
+/**Metric for vector search.*/
 public enum SearchMetric {
     COSINE_SIMILARITY("cosineSimilarity"),
     L1NORM("l1norm"),

@@ -20,6 +20,7 @@ package org.apache.flink.connector.elasticsearch.table;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
+import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.connector.elasticsearch.Elasticsearch7ApiCallBridge;
 import org.apache.flink.connector.elasticsearch.ElasticsearchApiCallBridge;
@@ -33,6 +34,33 @@ import org.apache.flink.table.factories.FactoryUtil;
 
 import org.elasticsearch.client.RestHighLevelClient;
 
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch7ConnectorOptions.MAX_RETRIES;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch7ConnectorOptions.VECTOR_SEARCH_METRIC;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_BACKOFF_DELAY_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_BACKOFF_MAX_RETRIES_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_BACKOFF_TYPE_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_INTERVAL_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_MAX_ACTIONS_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_MAX_SIZE_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.CONNECTION_PATH_PREFIX_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.CONNECTION_REQUEST_TIMEOUT;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.CONNECTION_TIMEOUT;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.DELIVERY_GUARANTEE_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.FORMAT_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.KEY_DELIMITER_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.PASSWORD_OPTION;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.SOCKET_TIMEOUT;
+import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.USERNAME_OPTION;
+import static org.apache.flink.table.connector.source.lookup.LookupOptions.CACHE_TYPE;
+import static org.apache.flink.table.connector.source.lookup.LookupOptions.PARTIAL_CACHE_CACHE_MISSING_KEY;
+import static org.apache.flink.table.connector.source.lookup.LookupOptions.PARTIAL_CACHE_EXPIRE_AFTER_ACCESS;
+import static org.apache.flink.table.connector.source.lookup.LookupOptions.PARTIAL_CACHE_EXPIRE_AFTER_WRITE;
+import static org.apache.flink.table.connector.source.lookup.LookupOptions.PARTIAL_CACHE_MAX_ROWS;
+import static org.apache.flink.table.factories.FactoryUtil.SINK_PARALLELISM;
 import static org.elasticsearch.common.Strings.capitalize;
 
 /** A {@link DynamicTableSinkFactory} for discovering {@link ElasticsearchDynamicSink}. */
@@ -78,5 +106,34 @@ public class Elasticsearch7DynamicTableFactory extends ElasticsearchDynamicTable
     @Override
     ElasticsearchApiCallBridge<RestHighLevelClient> getElasticsearchApiCallBridge() {
         return new Elasticsearch7ApiCallBridge();
+    }
+
+    @Override
+    public Set<ConfigOption<?>> optionalOptions() {
+        return Stream.of(
+                        KEY_DELIMITER_OPTION,
+                        BULK_FLUSH_MAX_SIZE_OPTION,
+                        BULK_FLUSH_MAX_ACTIONS_OPTION,
+                        BULK_FLUSH_INTERVAL_OPTION,
+                        BULK_FLUSH_BACKOFF_TYPE_OPTION,
+                        BULK_FLUSH_BACKOFF_MAX_RETRIES_OPTION,
+                        BULK_FLUSH_BACKOFF_DELAY_OPTION,
+                        CONNECTION_PATH_PREFIX_OPTION,
+                        CONNECTION_REQUEST_TIMEOUT,
+                        CONNECTION_TIMEOUT,
+                        SOCKET_TIMEOUT,
+                        FORMAT_OPTION,
+                        DELIVERY_GUARANTEE_OPTION,
+                        PASSWORD_OPTION,
+                        USERNAME_OPTION,
+                        SINK_PARALLELISM,
+                        CACHE_TYPE,
+                        PARTIAL_CACHE_EXPIRE_AFTER_ACCESS,
+                        PARTIAL_CACHE_EXPIRE_AFTER_WRITE,
+                        PARTIAL_CACHE_MAX_ROWS,
+                        PARTIAL_CACHE_CACHE_MISSING_KEY,
+                        MAX_RETRIES,
+                        VECTOR_SEARCH_METRIC)
+                .collect(Collectors.toSet());
     }
 }

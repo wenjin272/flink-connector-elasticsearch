@@ -24,9 +24,6 @@ import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.api.config.TableConfigOptions;
-import org.apache.flink.table.catalog.Column;
-import org.apache.flink.table.catalog.ResolvedSchema;
-import org.apache.flink.table.connector.Projection;
 import org.apache.flink.table.connector.format.DecodingFormat;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.data.RowData;
@@ -34,20 +31,26 @@ import org.apache.flink.table.factories.DeserializationFormatFactory;
 import org.apache.flink.table.factories.DynamicTableSinkFactory;
 import org.apache.flink.table.factories.DynamicTableSourceFactory;
 import org.apache.flink.table.factories.FactoryUtil;
-
-import org.apache.flink.table.types.DataType;
-import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.util.StringUtils;
 
 import java.time.ZoneId;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.ALLOW_INSECURE;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.MAX_RETRIES;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_CERT_FINGERPRINT;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_HTTP_CA;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_KEY_PASSWORD;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_KEYSTORE;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_KEYSTORE_PASSWORD;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_KEYSTORE_TYPE;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_PROTOCOL;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_TRUSTSTORE;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_TRUSTSTORE_PASSWORD;
+import static org.apache.flink.connector.elasticsearch.table.Elasticsearch8ConnectorOptions.SSL_TRUSTSTORE_TYPE;
 import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_BACKOFF_DELAY_OPTION;
 import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_BACKOFF_MAX_RETRIES_OPTION;
 import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.BULK_FLUSH_BACKOFF_TYPE_OPTION;
@@ -66,7 +69,6 @@ import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnec
 import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.SOCKET_TIMEOUT;
 import static org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions.USERNAME_OPTION;
 import static org.apache.flink.table.connector.source.lookup.LookupOptions.CACHE_TYPE;
-import static org.apache.flink.table.connector.source.lookup.LookupOptions.MAX_RETRIES;
 import static org.apache.flink.table.connector.source.lookup.LookupOptions.PARTIAL_CACHE_CACHE_MISSING_KEY;
 import static org.apache.flink.table.connector.source.lookup.LookupOptions.PARTIAL_CACHE_EXPIRE_AFTER_ACCESS;
 import static org.apache.flink.table.connector.source.lookup.LookupOptions.PARTIAL_CACHE_EXPIRE_AFTER_WRITE;
@@ -78,19 +80,18 @@ import static org.apache.flink.table.factories.FactoryUtil.SINK_PARALLELISM;
 public class Elasticsearch8DynamicTableFactory implements DynamicTableSourceFactory {
     private static final String FACTORY_IDENTIFIER = "elasticsearch-8";
 
-
     @Override
     public DynamicTableSource createDynamicTableSource(Context context) {
         final FactoryUtil.TableFactoryHelper helper =
                 FactoryUtil.createTableFactoryHelper(this, context);
-        final ReadableConfig options = helper.getOptions();
+
         final DecodingFormat<DeserializationSchema<RowData>> format =
                 helper.discoverDecodingFormat(
                         DeserializationFormatFactory.class,
                         org.apache.flink.connector.elasticsearch.table.ElasticsearchConnectorOptions
                                 .FORMAT_OPTION);
 
-        ElasticsearchConfiguration config = getConfiguration(helper);
+        Elasticsearch8Configuration config = getConfiguration(helper);
         helper.validate();
         validateConfiguration(config);
 
@@ -98,23 +99,11 @@ public class Elasticsearch8DynamicTableFactory implements DynamicTableSourceFact
                 format,
                 config,
                 context.getPhysicalRowDataType(),
-                options.get(MAX_RETRIES),
                 "Elasticsearch-8");
     }
 
-    ElasticsearchConfiguration getConfiguration(FactoryUtil.TableFactoryHelper helper) {
-        return new ElasticsearchConfiguration(helper.getOptions());
-    }
-
-
-    ZoneId getLocalTimeZoneId(ReadableConfig readableConfig) {
-        final String zone = readableConfig.get(TableConfigOptions.LOCAL_TIME_ZONE);
-        final ZoneId zoneId =
-                TableConfigOptions.LOCAL_TIME_ZONE.defaultValue().equals(zone)
-                        ? ZoneId.systemDefault()
-                        : ZoneId.of(zone);
-
-        return zoneId;
+    Elasticsearch8Configuration getConfiguration(FactoryUtil.TableFactoryHelper helper) {
+        return new Elasticsearch8Configuration(helper.getOptions());
     }
 
     void validateConfiguration(ElasticsearchConfiguration config) {
@@ -166,32 +155,6 @@ public class Elasticsearch8DynamicTableFactory implements DynamicTableSourceFact
         }
     }
 
-    List<LogicalTypeWithIndex> getPrimaryKeyLogicalTypesWithIndex(Context context) {
-        DataType physicalRowDataType = context.getPhysicalRowDataType();
-        int[] primaryKeyIndexes = context.getPrimaryKeyIndexes();
-        if (primaryKeyIndexes.length != 0) {
-            DataType pkDataType = Projection.of(primaryKeyIndexes).project(physicalRowDataType);
-
-            ElasticsearchValidationUtils.validatePrimaryKey(pkDataType);
-        }
-
-        ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
-        return Arrays.stream(primaryKeyIndexes)
-                .mapToObj(
-                        index -> {
-                            Optional<Column> column = resolvedSchema.getColumn(index);
-                            if (!column.isPresent()) {
-                                throw new IllegalStateException(
-                                        String.format(
-                                                "No primary key column found with index '%s'.",
-                                                index));
-                            }
-                            LogicalType logicalType = column.get().getDataType().getLogicalType();
-                            return new LogicalTypeWithIndex(index, logicalType);
-                        })
-                .collect(Collectors.toList());
-    }
-
     @Override
     public Set<ConfigOption<?>> requiredOptions() {
         return Stream.of(HOSTS_OPTION, INDEX_OPTION).collect(Collectors.toSet());
@@ -221,7 +184,18 @@ public class Elasticsearch8DynamicTableFactory implements DynamicTableSourceFact
                         PARTIAL_CACHE_EXPIRE_AFTER_WRITE,
                         PARTIAL_CACHE_MAX_ROWS,
                         PARTIAL_CACHE_CACHE_MISSING_KEY,
-                        MAX_RETRIES)
+                        MAX_RETRIES,
+                        SSL_KEYSTORE,
+                        SSL_KEYSTORE_TYPE,
+                        SSL_KEYSTORE_PASSWORD,
+                        SSL_KEY_PASSWORD,
+                        SSL_TRUSTSTORE,
+                        SSL_TRUSTSTORE_TYPE,
+                        SSL_TRUSTSTORE_PASSWORD,
+                        SSL_CERT_FINGERPRINT,
+                        SSL_PROTOCOL,
+                        SSL_HTTP_CA,
+                        ALLOW_INSECURE)
                 .collect(Collectors.toSet());
     }
 
